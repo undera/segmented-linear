@@ -1,5 +1,4 @@
 import logging
-from scipy.stats import norm
 import unittest
 import numpy
 
@@ -12,7 +11,7 @@ logging.basicConfig(format='%(asctime)s\t%(message)s', level=logging.INFO)
 class SegLinRegTestCase(unittest.TestCase):
     def test_something(self):
         obj = seglinreg.SegLinReg(int(numpy.random.sample() * 5) + 2)
-        
+
         normal = numpy.random.standard_normal(1 + numpy.random.sample() * 1000)
 
         data = []
@@ -21,8 +20,13 @@ class SegLinRegTestCase(unittest.TestCase):
             n += numpy.random.sample()
             data.append((n, val))
 
+        data.append((n + 1, None))
+        data.append((n + 2, None))
+        data.append((n + 3, None))
+
         chunks = obj.calculate(data)
         logging.info("Result: %s", chunks)
+        logging.info("Result data: %s", [val for val in chunks.get_regression_data()])
 
 
 if __name__ == '__main__':

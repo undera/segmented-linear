@@ -11,7 +11,7 @@ class SegLinReg:
         self.first_pass_breakpoints_ratio = 2
 
     def calculate(self, data):
-        return self.__second_pass(self.__first_pass(numpy.array(data)))
+        return self.__second_pass_unlimited(self.__first_pass(numpy.array(data)))
 
     def __first_pass(self, data):
         logging.info("Initial data len: %s, segments: %s, first pass ratio: %s", len(data), self.segment_count,
@@ -47,7 +47,7 @@ class SegLinReg:
 
         return best
 
-    def move_breakpoint(self, chunkset, n, direction):
+    def __move_breakpoint(self, chunkset, n, direction):
         chunks = chunkset.chunks
         while True:
             prev_r2 = chunkset.r_2
@@ -58,7 +58,6 @@ class SegLinReg:
             chunks[n + 1]["ss_tot"] = None
 
             chunkset.r_2 = None
-
 
             if chunks[n]["end"] < chunks[n + 1]["end"]:
                 chunkset.recalculate()
@@ -80,15 +79,24 @@ class SegLinReg:
         chunkset.recalculate()
         logging.debug("Done moves %s %s: %s", n, direction, chunkset)
 
-    def __second_pass(self, chunkset):
+
+    def __second_pass_limited(self, chunkset):
         """ the algo is: we move 'end' of the chunk left and right to find local optimum """
         for n, chunk in enumerate(chunkset.chunks):
             if n == len(chunkset.chunks) - 1:
                 continue
 
-            self.move_breakpoint(chunkset, n, 1)
-            self.move_breakpoint(chunkset, n, -1)
+            self.__move_breakpoint(chunkset, n, 1)
+            self.__move_breakpoint(chunkset, n, -1)
 
+        return chunkset
+
+    def __second_pass_unlimited(self, chunkset):
+        pos_hash = ""
+        while pos_hash != chunkset.get_position_hash():
+            pos_hash = chunkset.get_position_hash()
+            self.__second_pass_limited(chunkset)
+            logging.info("Unlimited moved: %s", chunkset)
         return chunkset
 
 
@@ -110,7 +118,8 @@ class SegLinRegResult:
         self.chunks = []
         for n, bp in enumerate(breakpoints):
             if n < len(breakpoints) - 1:
-                self.chunks.append({"start": bp, "end": breakpoints[n + 1] - 1, "ss_res": None, "ss_tot": None})
+                self.chunks.append(
+                    {"start": bp, "end": breakpoints[n + 1] - 1, "ss_res": None, "ss_tot": None, "regress": []})
 
         self.recalculate()
 
@@ -119,18 +128,21 @@ class SegLinRegResult:
         for chunk in self.chunks:
             if chunk["ss_tot"] is None:
                 subchunk = self.data[chunk["start"]:chunk["end"]]
+                subchunk = subchunk[numpy.where(subchunk[:, 1] > None)]
+                logging.debug("Regress for: %s", subchunk)
                 if not len(subchunk):
                     raise ValueError("Empty chunk: %s" % self.chunks)
 
                 values = subchunk[:, 1]
-                logging.debug("Regress for: %s", subchunk)
                 try:
-                    slope, intercept, r_value, p_value, std_err = stats.linregress(subchunk)
+                    slope, intercept, r_value, p_value, std_err = \
+                        stats.linregress(subchunk)
                 except ValueError, exc:
                     logging.exception("Problems calculated stats.linregress for %s" % subchunk, exc)
                     raise exc
                 mean = numpy.array([sum(values) / len(subchunk)] * len(subchunk))
-                regress = numpy.array([slope * x + intercept for x in subchunk[:, 0]])
+                chunk["regress"] = numpy.array([(x, slope * x + intercept) for x in subchunk[:, 0]])
+                regress = chunk["regress"][:, 1]
                 chunk["ss_tot"] = sum([x * x for x in values - mean])
                 chunk["ss_res"] = sum([x * x for x in regress - mean])
                 logging.debug("slope: %s, intercept: %s, r_value: %s, p_value: %s, std_err: %s",
@@ -143,3 +155,11 @@ class SegLinRegResult:
             self.ss_tot += chunk["ss_tot"]
 
         self.r_2 = 1 - (self.ss_res / self.ss_tot )
+
+    def get_position_hash(self):
+        return ';'.join(["%s:%s" % (x["start"], x["end"]) for x in self.chunks])
+
+    def get_regression_data(self):
+        for chunk in self.chunks:
+            for val in chunk["regress"]:
+                yield val

@@ -2,6 +2,7 @@ import logging
 import numpy
 import itertools
 from scipy.stats import stats
+import math
 
 
 class SegLinReg:
@@ -18,10 +19,10 @@ class SegLinReg:
 
         chunks = []
         bpt_count = self.first_pass_breakpoints_ratio * self.segment_count
-        if bpt_count > len(data):
-            bpt_count = len(data)
+        if bpt_count > len(data) / 2:
+            bpt_count = math.floor(len(data) / 2) + 1
 
-        step = len(data) / bpt_count
+        step = int(math.ceil(len(data) / bpt_count))
         breakpoints = []
         for n in range(0, len(data), step):
             breakpoints.append(n)
@@ -34,7 +35,11 @@ class SegLinReg:
         for comb in combinations:
             if comb[0] and comb[-1] != (len(data) - 1):
                 comb = [0] + [x for x in comb] + [len(data) - 1]
-                chunkset_candidates.append(SegLinRegResult(data, comb))
+                try:
+                    chunkset = SegLinRegResult(data, comb)
+                    chunkset_candidates.append(chunkset)
+                except ValueError, exc:
+                    logging.exception(exc)
         logging.debug("Chunkset candidates: %s", chunkset_candidates)
 
         best = max(chunkset_candidates, key=lambda chunkset: chunkset.r_2)
@@ -42,8 +47,45 @@ class SegLinReg:
 
         return best
 
-    def __second_pass(self, bp):
-        return (bp, 0)
+    def move_breakpoint(self, chunkset, n, direction):
+        chunks = chunkset.chunks
+        while True:
+            prev_r2 = chunkset.r_2
+            chunks[n]["end"] += direction
+            chunks[n]["ss_tot"] = None
+
+            chunks[n + 1]["start"] += direction
+            chunks[n + 1]["ss_tot"] = None
+
+            chunkset.r_2 = None
+
+            logging.info("Moved %s %s: %s", n, direction, chunkset)
+
+            if chunks[n]["end"] < chunks[n + 1]["end"]:
+                chunkset.recalculate()
+            else:
+                logging.info("Break on single point")
+                break
+
+            if chunkset.r_2 < prev_r2:
+                logging.info("Break on r2: %s<%s", chunkset.r_2, prev_r2)
+                break
+
+        chunks[n]["end"] -= direction
+        chunks[n + 1]["start"] -= direction
+        chunkset.recalculate()
+        logging.info("Done moves %s %s: %s", n, direction, chunkset)
+
+    def __second_pass(self, chunkset):
+        """ the algo is: we move 'end' of the chunk left and right to find local optimum """
+        for n, chunk in enumerate(chunkset.chunks):
+            if n == len(chunkset.chunks) - 1:
+                continue
+
+            self.move_breakpoint(chunkset, n, 1)
+            self.move_breakpoint(chunkset, n, -1)
+
+        return chunkset
 
 
 class SegLinRegResult:
@@ -57,7 +99,7 @@ class SegLinRegResult:
             self.__load_breakpoints(bpts)
 
     def __repr__(self):
-        return "R^2=%s: %s" % (self.r_2, self.chunks)
+        return "R^2=%s: %s" % (self.r_2, ["%s-%s" % (x["start"], x["end"]) for x in self.chunks])
 
     def __load_breakpoints(self, breakpoints):
         logging.debug("BP: %s", breakpoints)
@@ -66,15 +108,23 @@ class SegLinRegResult:
             if n < len(breakpoints) - 1:
                 self.chunks.append({"start": bp, "end": breakpoints[n + 1] - 1, "ss_res": None, "ss_tot": None})
 
-        self.__recalculate()
+        self.recalculate()
 
-    def __recalculate(self):
+
+    def recalculate(self):
         for chunk in self.chunks:
             if chunk["ss_tot"] is None:
                 subchunk = self.data[chunk["start"]:chunk["end"]]
+                if not len(subchunk):
+                    raise ValueError("Empty chunk: %s" % self.chunks)
+
                 values = subchunk[:, 1]
                 logging.debug("Regress for: %s", subchunk)
-                slope, intercept, r_value, p_value, std_err = stats.linregress(subchunk)
+                try:
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(subchunk)
+                except ValueError, exc:
+                    logging.exception("Problems calculated stats.linregress for %s" % subchunk, exc)
+                    raise exc
                 mean = numpy.array([sum(values) / len(subchunk)] * len(subchunk))
                 regress = numpy.array([slope * x + intercept for x in subchunk[:, 0]])
                 chunk["ss_tot"] = sum([x * x for x in values - mean])

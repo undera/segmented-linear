@@ -5,12 +5,12 @@ import numpy
 import seglinreg
 
 
-logging.basicConfig(format='%(asctime)s\t%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s\t%(message)s', level=logging.INFO)
 
 
 class SegLinRegTestCase(unittest.TestCase):
     def test_something(self):
-        obj = seglinreg.SegLinReg(int(numpy.random.sample() * 5))
+        obj = seglinreg.SegLinReg(int(numpy.random.sample() * 5) + 2)
 
         normal = numpy.random.standard_normal(numpy.random.sample() * 100)
 

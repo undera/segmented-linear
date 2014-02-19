@@ -59,10 +59,10 @@ class SegLinReg:
 
             chunkset.r_2 = None
 
-            logging.info("Moved %s %s: %s", n, direction, chunkset)
 
             if chunks[n]["end"] < chunks[n + 1]["end"]:
                 chunkset.recalculate()
+                logging.info("Moved %s %s: %s", n, direction, chunkset)
             else:
                 logging.info("Break on single point")
                 break
@@ -72,7 +72,11 @@ class SegLinReg:
                 break
 
         chunks[n]["end"] -= direction
+        chunks[n]["ss_tot"] = None
+
         chunks[n + 1]["start"] -= direction
+        chunks[n + 1]["ss_tot"] = None
+
         chunkset.recalculate()
         logging.info("Done moves %s %s: %s", n, direction, chunkset)
 

@@ -1,4 +1,5 @@
 import logging
+from scipy.stats import norm
 import unittest
 import numpy
 
@@ -10,10 +11,9 @@ logging.basicConfig(format='%(asctime)s\t%(message)s', level=logging.INFO)
 
 class SegLinRegTestCase(unittest.TestCase):
     def test_something(self):
-        #obj = seglinreg.SegLinReg(int(numpy.random.sample() * 5) + 2)
-        obj = seglinreg.SegLinReg(3)
-
-        normal = numpy.random.standard_normal(1+numpy.random.sample() * 100)
+        obj = seglinreg.SegLinReg(int(numpy.random.sample() * 5) + 2)
+        
+        normal = numpy.random.standard_normal(1 + numpy.random.sample() * 1000)
 
         data = []
         n = 0

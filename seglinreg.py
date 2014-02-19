@@ -62,13 +62,13 @@ class SegLinReg:
 
             if chunks[n]["end"] < chunks[n + 1]["end"]:
                 chunkset.recalculate()
-                logging.info("Moved %s %s: %s", n, direction, chunkset)
+                logging.debug("Moved %s %s: %s", n, direction, chunkset)
             else:
-                logging.info("Break on single point")
+                logging.debug("Break on single point")
                 break
 
             if chunkset.r_2 < prev_r2:
-                logging.info("Break on r2: %s<%s", chunkset.r_2, prev_r2)
+                logging.debug("Break on r2: %s<%s", chunkset.r_2, prev_r2)
                 break
 
         chunks[n]["end"] -= direction
@@ -78,7 +78,7 @@ class SegLinReg:
         chunks[n + 1]["ss_tot"] = None
 
         chunkset.recalculate()
-        logging.info("Done moves %s %s: %s", n, direction, chunkset)
+        logging.debug("Done moves %s %s: %s", n, direction, chunkset)
 
     def __second_pass(self, chunkset):
         """ the algo is: we move 'end' of the chunk left and right to find local optimum """

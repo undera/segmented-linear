@@ -26,6 +26,22 @@ class SegLinRegTestCase(unittest.TestCase):
 
         self.assertEqual(len(res), len(data))
 
+    def test_single(self):
+        obj = seglinreg.SegLinRegAuto(int(numpy.random.sample() * 10 + 2))
+
+        normal = numpy.random.standard_normal(1)
+
+        data = []
+        n = 0
+        for val in normal:
+            n += numpy.random.sample()
+            data.append((n, val))
+
+        chunks = obj.calculate(data)
+        logging.info("Result: %s", chunks)
+        res = [val for val in chunks.get_regression_data()]
+
+        self.assertEqual(len(res), len(data))
 
     def test_real1(self):
         test1 = [(0, 506224.0), (1, 535982.0), (2, 534981.0), (3, 542664.0), (4, 547944.0), (5, 541522.0),

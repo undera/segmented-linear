@@ -73,10 +73,10 @@ class SegLinReg:
                     chunkset = SegLinRegResult(data, comb)
                     chunkset_candidates.append(chunkset)
 
-        for cand in sorted(chunkset_candidates, key=lambda x: x.r_2):
+        for cand in sorted(chunkset_candidates, key=lambda xx: xx.r_2):
             logging.debug("Chunkset candidate: %s", cand)
 
-        best = max(chunkset_candidates, key=lambda x: x.r_2)
+        best = max(chunkset_candidates, key=lambda xx: xx.r_2)
         logging.debug("First pass best chunks: %s", best)
 
         return best
@@ -224,54 +224,3 @@ class SegLinRegResult:
         for chunk in self.chunks:
             for val in chunk["regress"]:
                 yield val
-
-
-def seg_lin_reg(requestContext, seriesList, segmentCount):
-    """
-    Graphs the segmented linear regression
-      requires python-numpy python-scipy
-      segmentCount must be > 2
-    """
-    for series in seriesList:
-        series.name = "segLinReg(%s,%s)" % (series.name, segmentCount)
-        #series.pathExpression = series.name
-        s = [(i, value) for i, value in enumerate(series)]
-        #logging.info("Source: %s", s)
-        regr = SegLinReg(segmentCount)
-        regr.first_pass_breakpoint_ratio = 10
-        res = regr.calculate(s)
-        logging.info("Result: %s", res)
-        for i, value in enumerate(series):
-            series[i] = None
-
-        for k, v in res.get_regression_data():
-            series[int(k)] = v
-        logging.info("Output: %s", len(series))
-    return seriesList
-
-
-def seg_lin_reg_auto(requestContext, seriesList, segmentCount=10, growthThreshold=None):
-    """
-    Graphs the segmented linear regression up to
-      requires python-numpy python-scipy
-      segmentCount must be > 2
-    """
-    for series in seriesList:
-        series.name = "segLinReg(%s,%s)" % (series.name, segmentCount)
-        #series.pathExpression = series.name
-        s = [(i, value) for i, value in enumerate(series)]
-        #logging.info("Source: %s", s)
-        regr = SegLinRegAuto(segmentCount)
-        if growthThreshold:
-            regr.r2_threshold = growthThreshold
-        res = regr.calculate(s)
-        logging.info("Result: %s", res)
-        for i, value in enumerate(series):
-            series[i] = None
-
-        for k, v in res.get_regression_data():
-            series[int(k)] = v
-        logging.info("Output: %s", len(series))
-
-    return seriesList
-

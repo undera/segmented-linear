@@ -2,6 +2,8 @@ import logging
 import numpy
 import itertools
 import math
+from scipy import stats
+import traceback
 
 
 class SegLinReg:
@@ -14,7 +16,18 @@ class SegLinReg:
                      self.first_pass_breakpoints_ratio)
 
         arr = numpy.array(data)
-        return self.__second_pass_unlimited(self.__first_pass(arr[numpy.where(arr[:, 1] > None)]))
+        chunks = self.__first_pass(arr[numpy.where(arr[:, 1] > None)])
+
+        '''
+        chunks.chunks[0]['end'] = 230
+        chunks.chunks[1]['start'] = chunks.chunks[0]['end'] + 1
+        chunks.chunks[0]["ss_tot"] = None
+        chunks.chunks[1]["ss_tot"] = None
+        chunks.recalculate()
+        return chunks
+        '''
+
+        return self.__second_pass_unlimited(chunks)
 
     def __first_pass(self, data):
         #return SegLinRegResult(data, [x for x in range(0, len(data), len(data) / self.segment_count)])
@@ -40,7 +53,7 @@ class SegLinReg:
                 chunkset_candidates.append(chunkset)
 
         for cand in sorted(chunkset_candidates, key=lambda x: x.r_2):
-            logging.info("Chunkset candidate: %s", cand)
+            logging.debug("Chunkset candidate: %s", cand)
 
         best = max(chunkset_candidates, key=lambda x: x.r_2)
         logging.info("First pass best chunks: %s", best)
@@ -59,9 +72,9 @@ class SegLinReg:
 
             chunkset.r_2 = None
 
-            if chunks[n]["start"] < chunks[n]["end"] - 1 and chunks[n + 1]["start"] < chunks[n + 1]["end"] - 1:
+            logging.debug("Try chunk %s,  step %s: %s", n, direction, chunkset)
+            if chunks[n]["start"] < chunks[n]["end"] and chunks[n + 1]["start"] < chunks[n + 1]["end"]:
                 chunkset.recalculate()
-                logging.debug("Moved %s %s: %s", n, direction, chunkset)
             else:
                 logging.debug("Break on single point")
                 break
@@ -75,6 +88,8 @@ class SegLinReg:
 
         chunks[n + 1]["start"] -= direction
         chunks[n + 1]["ss_tot"] = None
+
+        chunkset.r_2 = None
 
         chunkset.recalculate()
         logging.debug("Done moves %s %s: %s", n, direction, chunkset)
@@ -92,13 +107,14 @@ class SegLinReg:
         return chunkset
 
     def __second_pass_unlimited(self, chunkset):
-        pos_hash = ""
-        logging.info("Starting second pass: %s", chunkset)
+        logging.debug("Starting second pass: %s", chunkset)
         step = max([x['end'] - x['start'] for x in chunkset.chunks]) / 2
-        while pos_hash != chunkset.get_position_hash() and math.floor(step) > 0:
-            pos_hash = chunkset.get_position_hash()
-            self.__second_pass_limited(chunkset, math.floor(step))
-            logging.info("Unlimited moved with step %s: %s", step, chunkset)
+        while math.floor(step) > 0:
+            pos_hash = ""
+            while pos_hash != chunkset.get_position_hash():
+                pos_hash = chunkset.get_position_hash()
+                self.__second_pass_limited(chunkset, math.floor(step))
+                logging.info("Unlimited moved with step %s: %s", step, chunkset)
             step /= 2
         return chunkset
 
@@ -136,16 +152,20 @@ class SegLinRegResult:
 
 
     def recalculate(self):
+        logging.debug("Calculating regression")
         for chunk in self.chunks:
             if chunk["ss_tot"] is None:
                 subchunk = self.data[chunk["start"]:chunk["end"]]
                 if not len(subchunk):
                     raise ValueError("Empty chunk: %s" % self.chunks)
 
-                logging.debug("Regress for: %s", subchunk)
+                if len(subchunk) != chunk["end"] - chunk["start"]:
+                    raise RuntimeError("Not similar!")
+
+                logging.debug("Regress for %s: %s", chunk, subchunk)
 
                 values = subchunk[:, 1]
-                slope, intercept = linreg(subchunk)
+                slope, intercept, r = linreg(subchunk)
                 mean = numpy.array([sum(values) / len(subchunk)] * len(subchunk))
                 chunk["regress"] = numpy.array([(x, slope * x + intercept) for x in subchunk[:, 0]])
                 regress = chunk["regress"][:, 1]
@@ -159,7 +179,7 @@ class SegLinRegResult:
             self.ss_res += chunk["ss_res"]
             self.ss_tot += chunk["ss_tot"]
 
-        self.r_2 = 1 - (self.ss_res / self.ss_tot)
+        self.r_2 =(self.ss_res / self.ss_tot)
 
     def get_position_hash(self):
         return ' '.join(["%s:%s" % (x["start"], x["end"]) for x in self.chunks])
@@ -171,6 +191,16 @@ class SegLinRegResult:
 
 
 def linreg(data):
+    try:
+        (a_s, b_s, r, tt, stderr) = stats.linregress(data)
+        logging.debug("a_s=%s, b_s=%s, r=%s, tt=%s, stderr=%s", a_s, b_s, r, tt, stderr)
+    except Exception, exc:
+        logging.debug("Exception in linregress: %s", traceback.format_exc(exc))
+        a_s = 0
+        b_s = 0
+        r = 0
+    return a_s, b_s, r
+
     """
     Numpy's version of linregress caused div by zero errors
     http://www.answermysearches.com/how-to-do-a-simple-linear-regression-in-python/124/

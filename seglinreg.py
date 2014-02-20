@@ -6,39 +6,58 @@ from scipy import stats
 import traceback
 
 
+class SegLinRegAuto:
+    def __init__(self, max_chunks):
+        self.max_segments = max_chunks
+        self.r2_threshold = 0.001
+
+
+    def calculate(self, data):
+        logging.info("Searching auto segments up to %s", self.max_segments)
+        iterations = []
+        for segments in range(2, self.max_segments + 1):
+            reg = SegLinReg(segments)
+            iterations.append(reg.calculate(data))
+            logging.info("%s segments: %s", segments, iterations[-1])
+            if segments > 2:
+                if iterations[-1].r_2 < iterations[-2].r_2:
+                    logging.info("R2 declines")
+                    return iterations[-2]
+
+                if iterations[-1].r_2 - iterations[-2].r_2 < self.r2_threshold:
+                    logging.info("R2 growth below threshold")
+                    return iterations[-2]
+
+        logging.info("Segments limit reached")
+        return iterations[-1]
+
+
 class SegLinReg:
     def __init__(self, segment_count=2):
         self.segment_count = segment_count if segment_count > 1 else 2
-        self.first_pass_breakpoints_ratio = 2
+        self.first_pass_breakpoints_ratio = 10
 
     def calculate(self, data):
         logging.info("Initial data len: %s, segments: %s, first pass ratio: %s", len(data), self.segment_count,
                      self.first_pass_breakpoints_ratio)
 
         arr = numpy.array(data)
-        chunks = self.__first_pass(arr[numpy.where(arr[:, 1] > None)])
-
-        '''
-        chunks.chunks[0]['end'] = 230
-        chunks.chunks[1]['start'] = chunks.chunks[0]['end'] + 1
-        chunks.chunks[0]["ss_tot"] = None
-        chunks.chunks[1]["ss_tot"] = None
-        chunks.recalculate()
-        return chunks
-        '''
+        no_nulls = arr[numpy.where(arr[:, 1] > None)]
+        logging.debug("Lens: %s/%s", len(arr), len(no_nulls))
+        chunks = self.__first_pass(no_nulls)
 
         return self.__second_pass_unlimited(chunks)
 
     def __first_pass(self, data):
         #return SegLinRegResult(data, [x for x in range(0, len(data), len(data) / self.segment_count)])
 
-        bpt_count = self.first_pass_breakpoints_ratio * self.segment_count
+        bpt_count = self.first_pass_breakpoints_ratio
         if bpt_count > len(data) / 2:
             bpt_count = math.floor(len(data) / 2) + 1
 
         step = len(data) / bpt_count
         breakpoints = []
-        for n in range(0, len(data), int(step)):
+        for n in range(0, len(data) + 1, int(step)):
             breakpoints.append(n)
 
         logging.debug("Breakpoints: %s", breakpoints)
@@ -46,6 +65,7 @@ class SegLinReg:
         chunkset_candidates = []
         combinations = [x for x in itertools.combinations(breakpoints, self.segment_count - 1)]
         logging.debug("Combinations: %s", combinations)
+        logging.debug("Len: %s", len(data))
         for comb in combinations:
             if comb[0] and comb[-1] != (len(data) - 1):
                 comb = [0] + [x for x in comb] + [len(data) - 1]
@@ -57,7 +77,7 @@ class SegLinReg:
             logging.debug("Chunkset candidate: %s", cand)
 
         best = max(chunkset_candidates, key=lambda x: x.r_2)
-        logging.info("First pass best chunks: %s", best)
+        logging.debug("First pass best chunks: %s", best)
 
         return best
 
@@ -115,7 +135,7 @@ class SegLinReg:
             while pos_hash != chunkset.get_position_hash():
                 pos_hash = chunkset.get_position_hash()
                 self.__second_pass_limited(chunkset, math.floor(step))
-                logging.info("Unlimited moved with step %s: %s", step, chunkset)
+                logging.debug("Unlimited moved with step %s: %s", step, chunkset)
             step /= 2
         return chunkset
 
@@ -166,12 +186,27 @@ class SegLinRegResult:
                 logging.debug("Regress for %s: %s", chunk, subchunk)
 
                 values = subchunk[:, 1]
-                slope, intercept, r = linreg(subchunk)
                 mean = numpy.array([sum(values) / len(subchunk)] * len(subchunk))
+
+                try:
+                    (slope, intercept, r, tt, stderr) = stats.linregress(subchunk)
+                    #logging.info("a_s=%s, b_s=%s, r=%s, tt=%s, stderr=%s", slope, intercept, r, tt, stderr)
+                except Exception, exc:
+                    logging.debug("Exception in linregress: %s", traceback.format_exc(exc))
+                    slope = 0
+                    intercept = 0
+
+                if math.isnan(slope):
+                    slope = 0
+
+                if math.isnan(intercept):
+                    intercept = mean
+
                 chunk["regress"] = numpy.array([(x, slope * x + intercept) for x in subchunk[:, 0]])
+
                 regress = chunk["regress"][:, 1]
-                chunk["ss_tot"] = sum([x * x for x in values - mean])
-                chunk["ss_res"] = sum([x * x for x in regress - mean])
+                chunk["ss_tot"] = sum([x * x for x in (values - mean)])
+                chunk["ss_res"] = sum([x * x for x in (values - regress)])
                 logging.debug("slope: %s, intercept: %s", slope, intercept)
 
         self.ss_res = 0
@@ -180,7 +215,7 @@ class SegLinRegResult:
             self.ss_res += chunk["ss_res"]
             self.ss_tot += chunk["ss_tot"]
 
-        self.r_2 = (self.ss_res / self.ss_tot)
+        self.r_2 = 1 - (self.ss_res / self.ss_tot)
 
     def get_position_hash(self):
         return ' '.join(["%s:%s" % (x["start"], x["end"]) for x in self.chunks])
@@ -191,37 +226,52 @@ class SegLinRegResult:
                 yield val
 
 
-def linreg(data):
-    try:
-        (a_s, b_s, r, tt, stderr) = stats.linregress(data)
-        logging.debug("a_s=%s, b_s=%s, r=%s, tt=%s, stderr=%s", a_s, b_s, r, tt, stderr)
-    except Exception, exc:
-        logging.debug("Exception in linregress: %s", traceback.format_exc(exc))
-        a_s = 0
-        b_s = 0
-        r = 0
-    return a_s, b_s, r
+def seg_lin_reg(requestContext, seriesList, segmentCount):
+    """
+    Graphs the segmented linear regression
+      requires python-numpy python-scipy
+      segmentCount must be > 2
+    """
+    for series in seriesList:
+        series.name = "segLinReg(%s,%s)" % (series.name, segmentCount)
+        #series.pathExpression = series.name
+        s = [(i, value) for i, value in enumerate(series)]
+        #logging.info("Source: %s", s)
+        regr = SegLinReg(segmentCount)
+        regr.first_pass_breakpoint_ratio = 10
+        res = regr.calculate(s)
+        logging.info("Result: %s", res)
+        for i, value in enumerate(series):
+            series[i] = None
 
+        for k, v in res.get_regression_data():
+            series[int(k)] = v
+        logging.info("Output: %s", len(series))
+    return seriesList
+
+
+def seg_lin_reg_auto(requestContext, seriesList, segmentCount=10, growthThreshold=None):
     """
-    Numpy's version of linregress caused div by zero errors
-    http://www.answermysearches.com/how-to-do-a-simple-linear-regression-in-python/124/
-    Summary
-        Linear regression of y = ax + b
-    Usage
-        real, real, real = linreg(list, list)
-    Returns coefficients to the regression line "y=ax+b" from x[] and y[], and R^2 Value
+    Graphs the segmented linear regression up to
+      requires python-numpy python-scipy
+      segmentCount must be > 2
     """
-    N = len(data)
-    Sx = Sy = Sxx = Syy = Sxy = 0.0
-    for x, y in data:
-        Sx = Sx + x
-        Sy = Sy + y
-        Sxx = Sxx + x * x
-        Syy = Syy + y * y
-        Sxy = Sxy + x * y
-    det = Sxx * N - Sx * Sx
-    if det:
-        a, b = (Sxy * N - Sy * Sx) / det, (Sxx * Sy - Sx * Sxy) / det
-    else:
-        a, b = (0, 0)
-    return a, b
+    for series in seriesList:
+        series.name = "segLinReg(%s,%s)" % (series.name, segmentCount)
+        #series.pathExpression = series.name
+        s = [(i, value) for i, value in enumerate(series)]
+        #logging.info("Source: %s", s)
+        regr = SegLinRegAuto(segmentCount)
+        if growthThreshold:
+            regr.r2_threshold = growthThreshold
+        res = regr.calculate(s)
+        logging.info("Result: %s", res)
+        for i, value in enumerate(series):
+            series[i] = None
+
+        for k, v in res.get_regression_data():
+            series[int(k)] = v
+        logging.info("Output: %s", len(series))
+
+    return seriesList
+

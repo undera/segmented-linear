@@ -47,10 +47,11 @@ class SegLinReg:
         combinations = [x for x in itertools.combinations(breakpoints, self.segment_count - 1)]
         logging.debug("Combinations: %s", combinations)
         for comb in combinations:
-            if comb[0] and comb[-1] != (len(data) - 1) and self.__no_zero_chunks(comb):
+            if comb[0] and comb[-1] != (len(data) - 1):
                 comb = [0] + [x for x in comb] + [len(data) - 1]
-                chunkset = SegLinRegResult(data, comb)
-                chunkset_candidates.append(chunkset)
+                if self.__no_zero_chunks(comb):
+                    chunkset = SegLinRegResult(data, comb)
+                    chunkset_candidates.append(chunkset)
 
         for cand in sorted(chunkset_candidates, key=lambda x: x.r_2):
             logging.debug("Chunkset candidate: %s", cand)
@@ -119,9 +120,9 @@ class SegLinReg:
         return chunkset
 
     def __no_zero_chunks(self, comb):
-        prev = -1
+        prev = -2
         for bpt in comb:
-            if prev == bpt:
+            if prev >= bpt - 1:
                 return False
             prev = bpt
         return True
@@ -179,7 +180,7 @@ class SegLinRegResult:
             self.ss_res += chunk["ss_res"]
             self.ss_tot += chunk["ss_tot"]
 
-        self.r_2 =(self.ss_res / self.ss_tot)
+        self.r_2 = (self.ss_res / self.ss_tot)
 
     def get_position_hash(self):
         return ' '.join(["%s:%s" % (x["start"], x["end"]) for x in self.chunks])

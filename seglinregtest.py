@@ -1,9 +1,8 @@
 import logging
-import unittest
 import numpy
+import unittest
 
 import seglinreg
-
 
 logging.basicConfig(format='%(asctime)s\t%(message)s', level=logging.INFO)
 
@@ -176,5 +175,3 @@ class SegLinRegTestCase(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-

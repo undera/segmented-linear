@@ -1,9 +1,10 @@
-import logging
-import numpy
 import itertools
+import logging
 import math
-from scipy import stats
+import numpy
 import traceback
+
+from scipy import stats
 
 
 class SegLinRegAuto:
@@ -11,8 +12,11 @@ class SegLinRegAuto:
         self.max_segments = max_chunks
         self.r2_threshold = 0.001
 
-
     def calculate(self, data):
+        """
+        :type data: list[(int,float)]
+        :rtype: SegLinRegResult
+        """
         logging.info("Searching auto segments up to %s", self.max_segments)
         iterations = []
         for segments in range(2, self.max_segments + 1):
@@ -24,8 +28,9 @@ class SegLinRegAuto:
                     logging.info("R2 declines")
                     return iterations[-2]
 
-                if iterations[-1].r_2 - iterations[-2].r_2 < self.r2_threshold:
-                    logging.info("R2 growth below threshold")
+                r2_growth = iterations[-1].r_2 - iterations[-2].r_2
+                if r2_growth < self.r2_threshold:
+                    logging.info("R2 growth below threshold: %s < %s", r2_growth, self.r2_threshold)
                     return iterations[-2]
 
         logging.info("Segments limit reached")
@@ -49,7 +54,7 @@ class SegLinReg:
         return self.__second_pass_unlimited(chunks)
 
     def __first_pass(self, data):
-        #return SegLinRegResult(data, [x for x in range(0, len(data), len(data) / self.segment_count)])
+        # return SegLinRegResult(data, [x for x in range(0, len(data), len(data) / self.segment_count)])
 
         bpt_count = self.first_pass_breakpoints_ratio
         if bpt_count > len(data) / 2:
@@ -115,7 +120,6 @@ class SegLinReg:
         chunkset.recalculate()
         logging.debug("Done moves %s %s: %s", n, direction, chunkset)
 
-
     def __second_pass_limited(self, chunkset, step):
         """ the algo is: we move 'end' of the chunk left and right to find local optimum """
         for n, chunk in enumerate(chunkset.chunks):
@@ -148,7 +152,7 @@ class SegLinReg:
         return True
 
 
-class SegLinRegResult:
+class SegLinRegResult(object):
     def __init__(self, data=None, bpts=None):
         self.ss_res = None
         self.ss_tot = None
@@ -171,7 +175,6 @@ class SegLinRegResult:
 
         self.recalculate()
 
-
     def recalculate(self):
         logging.debug("Calculating regression")
         for chunk in self.chunks:
@@ -190,7 +193,7 @@ class SegLinRegResult:
 
                 try:
                     (slope, intercept, r, tt, stderr) = stats.linregress(subchunk)
-                    #logging.info("a_s=%s, b_s=%s, r=%s, tt=%s, stderr=%s", slope, intercept, r, tt, stderr)
+                    # logging.info("a_s=%s, b_s=%s, r=%s, tt=%s, stderr=%s", slope, intercept, r, tt, stderr)
                 except Exception, exc:
                     logging.debug("Exception in linregress: %s", traceback.format_exc(exc))
                     slope = 0

@@ -1,15 +1,16 @@
 import itertools
 import logging
 import math
-import numpy
 import traceback
 
+import numpy
 from scipy import stats
 
 
-class SegLinRegAuto:
-    def __init__(self, max_chunks):
+class SegLinRegAuto(object):
+    def __init__(self, max_chunks, min_chunks=2):
         self.max_segments = max_chunks
+        self.min_segments = min_chunks
         self.r2_threshold = 0.001
 
     def calculate(self, data):
@@ -19,11 +20,11 @@ class SegLinRegAuto:
         """
         logging.info("Searching auto segments up to %s", self.max_segments)
         iterations = []
-        for segments in range(2, self.max_segments + 1):
+        for segments in range(self.min_segments, self.max_segments + 1):
             reg = SegLinReg(segments)
             iterations.append(reg.calculate(data))
             logging.info("%s segments: %s", segments, iterations[-1])
-            if segments > 2:
+            if segments > 2 and len(iterations) > 2:
                 if iterations[-1].r_2 < iterations[-2].r_2:
                     logging.info("R2 declines")
                     return iterations[-2]
@@ -37,7 +38,7 @@ class SegLinRegAuto:
         return iterations[-1]
 
 
-class SegLinReg:
+class SegLinReg(object):
     def __init__(self, segment_count=2):
         self.segment_count = segment_count if segment_count > 1 else 2
         self.first_pass_breakpoints_ratio = 10
@@ -47,6 +48,7 @@ class SegLinReg:
                      self.first_pass_breakpoints_ratio)
 
         arr = numpy.array(data)
+        arr = numpy.sort(arr, axis=0)
         no_nulls = arr[numpy.where(arr[:, 1] > None)]
         logging.debug("Lens: %s/%s", len(arr), len(no_nulls))
         chunks = self.__first_pass(no_nulls)
@@ -78,8 +80,8 @@ class SegLinReg:
                     chunkset = SegLinRegResult(data, comb)
                     chunkset_candidates.append(chunkset)
 
-        for cand in sorted(chunkset_candidates, key=lambda xx: xx.r_2):
-            logging.debug("Chunkset candidate: %s", cand)
+        # for cand in sorted(chunkset_candidates, key=lambda xx: xx.r_2):
+        #    logging.debug("Chunkset candidate: %s", cand)
 
         best = max(chunkset_candidates, key=lambda xx: xx.r_2)
         logging.debug("First pass best chunks: %s", best)
@@ -179,17 +181,17 @@ class SegLinRegResult(object):
         logging.debug("Calculating regression")
         for chunk in self.chunks:
             if chunk["ss_tot"] is None:
-                subchunk = self.data[chunk["start"]:chunk["end"]]
+                subchunk = self.data[int(chunk["start"]):int(chunk["end"])]
                 if not len(subchunk):
                     raise ValueError("Empty chunk: %s" % self.chunks)
 
                 if len(subchunk) != chunk["end"] - chunk["start"]:
                     raise RuntimeError("Not similar!")
 
-                logging.debug("Regress for %s: %s", chunk, subchunk)
+                # logging.debug("Regress for %s: %s", chunk, subchunk)
 
                 values = subchunk[:, 1]
-                mean = numpy.array([sum(values) / len(subchunk)] * len(subchunk))
+                mean = numpy.array([float(sum(values)) / len(subchunk)] * len(subchunk))
 
                 try:
                     (slope, intercept, r, tt, stderr) = stats.linregress(subchunk)
@@ -203,22 +205,25 @@ class SegLinRegResult(object):
                     slope = 0
 
                 if math.isnan(intercept):
-                    intercept = mean
+                    intercept = mean[0]
 
                 chunk["regress"] = numpy.array([(x, slope * x + intercept) for x in subchunk[:, 0]])
 
                 regress = chunk["regress"][:, 1]
                 chunk["ss_tot"] = sum([x * x for x in (values - mean)])
                 chunk["ss_res"] = sum([x * x for x in (values - regress)])
+                chunk['slope'] = slope
+                chunk['intercept'] = intercept
                 logging.debug("slope: %s, intercept: %s", slope, intercept)
 
-        self.ss_res = 0
-        self.ss_tot = 0
+        self.ss_res = 0.0
+        self.ss_tot = 0.0
         for chunk in self.chunks:
             self.ss_res += chunk["ss_res"]
             self.ss_tot += chunk["ss_tot"]
 
         self.r_2 = 1 - (self.ss_res / self.ss_tot)
+        logging.info("%s", self)
 
     def get_position_hash(self):
         return ' '.join(["%s:%s" % (x["start"], x["end"]) for x in self.chunks])
